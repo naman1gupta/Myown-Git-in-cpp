@@ -648,8 +648,8 @@ void cloneRepository(const std::string& url, const std::string& targetDir) {
     
     // Create the commit object
     std::string commitContent = "tree " + treeHash + "\n";
-    commitContent += "author Test Author <test@example.com> 1234567890 +0000\n";
-    commitContent += "committer Test Author <test@example.com> 1234567890 +0000\n";
+    commitContent += "author Paul Kuruvilla <paul@codecrafters.io> 1234567890 +0000\n";
+    commitContent += "committer Paul Kuruvilla <paul@codecrafters.io> 1234567890 +0000\n";
     commitContent += "\n";
     commitContent += "Initial commit\n";
     
