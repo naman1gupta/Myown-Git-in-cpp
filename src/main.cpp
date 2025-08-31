@@ -6,6 +6,7 @@
 #include <zlib.h>
 #include <vector>
 #include <iomanip>
+#include <openssl/sha.h>
 
 std::string decompressZlib(const std::vector<char>& compressedData) {
     z_stream strm;
@@ -39,6 +40,49 @@ std::string decompressZlib(const std::vector<char>& compressedData) {
     return result;
 }
 
+std::vector<char> compressZlib(const std::string& data) {
+    z_stream strm;
+    strm.zalloc = Z_NULL;
+    strm.zfree = Z_NULL;
+    strm.opaque = Z_NULL;
+    strm.avail_in = data.size();
+    strm.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(data.data()));
+
+    if (deflateInit(&strm, Z_DEFAULT_COMPRESSION) != Z_OK) {
+        throw std::runtime_error("Failed to initialize zlib compression");
+    }
+
+    std::vector<char> result;
+    char buffer[1024];
+    
+    do {
+        strm.avail_out = sizeof(buffer);
+        strm.next_out = reinterpret_cast<Bytef*>(buffer);
+        
+        int ret = deflate(&strm, Z_FINISH);
+        if (ret == Z_STREAM_ERROR) {
+            deflateEnd(&strm);
+            throw std::runtime_error("Failed to compress zlib data");
+        }
+        
+        result.insert(result.end(), buffer, buffer + (sizeof(buffer) - strm.avail_out));
+    } while (strm.avail_out == 0);
+    
+    deflateEnd(&strm);
+    return result;
+}
+
+std::string computeSHA1(const std::string& data) {
+    unsigned char hash[SHA_DIGEST_LENGTH];
+    SHA1(reinterpret_cast<const unsigned char*>(data.data()), data.length(), hash);
+    
+    std::stringstream ss;
+    for (int i = 0; i < SHA_DIGEST_LENGTH; i++) {
+        ss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(hash[i]);
+    }
+    return ss.str();
+}
+
 std::string readGitObject(const std::string& hash) {
     // Git objects are stored as .git/objects/XX/YYYYYY... where XX is first 2 chars of hash
     std::string dir = ".git/objects/" + hash.substr(0, 2);
@@ -56,6 +100,34 @@ std::string readGitObject(const std::string& hash) {
     
     // Decompress the data
     return decompressZlib(compressedData);
+}
+
+std::string writeGitObject(const std::string& content) {
+    // Create the Git object format: "blob <size>\0<content>"
+    std::string header = "blob " + std::to_string(content.length());
+    std::string objectData = header + '\0' + content;
+    
+    // Compute SHA-1 hash of the uncompressed object data
+    std::string hash = computeSHA1(objectData);
+    
+    // Compress the object data
+    std::vector<char> compressedData = compressZlib(objectData);
+    
+    // Create directory structure
+    std::string dir = ".git/objects/" + hash.substr(0, 2);
+    std::filesystem::create_directories(dir);
+    
+    // Write compressed data to file
+    std::string filename = dir + "/" + hash.substr(2);
+    std::ofstream file(filename, std::ios::binary);
+    if (!file) {
+        throw std::runtime_error("Failed to create object file: " + filename);
+    }
+    
+    file.write(compressedData.data(), compressedData.size());
+    file.close();
+    
+    return hash;
 }
 
 int main(int argc, char *argv[])
@@ -128,6 +200,42 @@ int main(int argc, char *argv[])
             
         } catch (const std::exception& e) {
             std::cerr << "Error reading object: " << e.what() << '\n';
+            return EXIT_FAILURE;
+        }
+    } else if (command == "hash-object") {
+        if (argc < 4) {
+            std::cerr << "Usage: hash-object -w <file>\n";
+            return EXIT_FAILURE;
+        }
+        
+        std::string flag = argv[2];
+        std::string filename = argv[3];
+        
+        if (flag != "-w") {
+            std::cerr << "Only -w flag is supported\n";
+            return EXIT_FAILURE;
+        }
+        
+        try {
+            // Read the file content
+            std::ifstream file(filename);
+            if (!file) {
+                std::cerr << "Failed to open file: " << filename << '\n';
+                return EXIT_FAILURE;
+            }
+            
+            std::string content((std::istreambuf_iterator<char>(file)),
+                              std::istreambuf_iterator<char>());
+            file.close();
+            
+            // Create the blob object and get the hash
+            std::string hash = writeGitObject(content);
+            
+            // Print the hash
+            std::cout << hash << '\n';
+            
+        } catch (const std::exception& e) {
+            std::cerr << "Error creating object: " << e.what() << '\n';
             return EXIT_FAILURE;
         }
     } else {
