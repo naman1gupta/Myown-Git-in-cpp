@@ -7,6 +7,13 @@
 #include <vector>
 #include <iomanip>
 #include <openssl/sha.h>
+#include <algorithm>
+
+struct TreeEntry {
+    std::string mode;
+    std::string name;
+    std::string hash; // 20 bytes as hex string
+};
 
 std::string decompressZlib(const std::vector<char>& compressedData) {
     z_stream strm;
@@ -130,6 +137,61 @@ std::string writeGitObject(const std::string& content) {
     return hash;
 }
 
+std::vector<TreeEntry> parseTreeObject(const std::string& objectData) {
+    std::vector<TreeEntry> entries;
+    size_t pos = 0;
+    
+    // Skip the header (type size\0)
+    size_t nullPos = objectData.find('\0');
+    if (nullPos == std::string::npos) {
+        throw std::runtime_error("Invalid tree object format");
+    }
+    
+    // Start parsing after the header
+    pos = nullPos + 1;
+    
+    while (pos < objectData.length()) {
+        // Find the next space (separates mode from name)
+        size_t spacePos = objectData.find(' ', pos);
+        if (spacePos == std::string::npos) {
+            break;
+        }
+        
+        // Extract mode
+        std::string mode = objectData.substr(pos, spacePos - pos);
+        
+        // Find the null byte (separates name from hash)
+        size_t nameEndPos = objectData.find('\0', spacePos);
+        if (nameEndPos == std::string::npos) {
+            break;
+        }
+        
+        // Extract name
+        std::string name = objectData.substr(spacePos + 1, nameEndPos - spacePos - 1);
+        
+        // Extract hash (20 bytes after the null byte)
+        if (nameEndPos + 20 > objectData.length()) {
+            break;
+        }
+        
+        std::string rawHash = objectData.substr(nameEndPos + 1, 20);
+        
+        // Convert raw bytes to hex string
+        std::stringstream ss;
+        for (unsigned char byte : rawHash) {
+            ss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(byte);
+        }
+        std::string hash = ss.str();
+        
+        entries.push_back({mode, name, hash});
+        
+        // Move to next entry
+        pos = nameEndPos + 21;
+    }
+    
+    return entries;
+}
+
 int main(int argc, char *argv[])
 {
     // Flush after every std::cout / std::cerr
@@ -236,6 +298,41 @@ int main(int argc, char *argv[])
             
         } catch (const std::exception& e) {
             std::cerr << "Error creating object: " << e.what() << '\n';
+            return EXIT_FAILURE;
+        }
+    } else if (command == "ls-tree") {
+        if (argc < 4) {
+            std::cerr << "Usage: ls-tree --name-only <tree>\n";
+            return EXIT_FAILURE;
+        }
+        
+        std::string flag = argv[2];
+        std::string hash = argv[3];
+        
+        if (flag != "--name-only") {
+            std::cerr << "Only --name-only flag is supported\n";
+            return EXIT_FAILURE;
+        }
+        
+        try {
+            std::string objectData = readGitObject(hash);
+            
+            // Parse the tree object
+            std::vector<TreeEntry> entries = parseTreeObject(objectData);
+            
+            // Sort entries by name (as Git does)
+            std::sort(entries.begin(), entries.end(), 
+                     [](const TreeEntry& a, const TreeEntry& b) {
+                         return a.name < b.name;
+                     });
+            
+            // Print just the names
+            for (const auto& entry : entries) {
+                std::cout << entry.name << '\n';
+            }
+            
+        } catch (const std::exception& e) {
+            std::cerr << "Error reading tree object: " << e.what() << '\n';
             return EXIT_FAILURE;
         }
     } else {
