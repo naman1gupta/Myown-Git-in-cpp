@@ -137,6 +137,49 @@ std::string writeGitObject(const std::string& content) {
     return hash;
 }
 
+std::string writeTreeObject(const std::vector<TreeEntry>& entries) {
+    // Create the tree object content
+    std::string treeContent;
+    
+    for (const auto& entry : entries) {
+        // Convert hex hash back to raw bytes
+        std::string rawHash;
+        for (size_t i = 0; i < entry.hash.length(); i += 2) {
+            std::string byteStr = entry.hash.substr(i, 2);
+            rawHash += static_cast<char>(std::stoi(byteStr, nullptr, 16));
+        }
+        
+        // Format: mode name\0hash
+        treeContent += entry.mode + " " + entry.name + '\0' + rawHash;
+    }
+    
+    // Create the Git object format: "tree <size>\0<content>"
+    std::string header = "tree " + std::to_string(treeContent.length());
+    std::string objectData = header + '\0' + treeContent;
+    
+    // Compute SHA-1 hash of the uncompressed object data
+    std::string hash = computeSHA1(objectData);
+    
+    // Compress the object data
+    std::vector<char> compressedData = compressZlib(objectData);
+    
+    // Create directory structure
+    std::string dir = ".git/objects/" + hash.substr(0, 2);
+    std::filesystem::create_directories(dir);
+    
+    // Write compressed data to file
+    std::string filename = dir + "/" + hash.substr(2);
+    std::ofstream file(filename, std::ios::binary);
+    if (!file) {
+        throw std::runtime_error("Failed to create tree object file: " + filename);
+    }
+    
+    file.write(compressedData.data(), compressedData.size());
+    file.close();
+    
+    return hash;
+}
+
 std::vector<TreeEntry> parseTreeObject(const std::string& objectData) {
     std::vector<TreeEntry> entries;
     size_t pos = 0;
@@ -190,6 +233,49 @@ std::vector<TreeEntry> parseTreeObject(const std::string& objectData) {
     }
     
     return entries;
+}
+
+std::string createTreeFromDirectory(const std::string& dirPath) {
+    std::vector<TreeEntry> entries;
+    
+    // Iterate through directory entries
+    for (const auto& entry : std::filesystem::directory_iterator(dirPath)) {
+        std::string name = entry.path().filename().string();
+        
+        // Skip .git directory
+        if (name == ".git") {
+            continue;
+        }
+        
+        if (entry.is_regular_file()) {
+            // Create blob object for file
+            std::ifstream file(entry.path());
+            if (!file) {
+                throw std::runtime_error("Failed to open file: " + entry.path().string());
+            }
+            
+            std::string content((std::istreambuf_iterator<char>(file)),
+                              std::istreambuf_iterator<char>());
+            file.close();
+            
+            std::string hash = writeGitObject(content);
+            entries.push_back({"100644", name, hash}); // 100644 is regular file mode
+            
+        } else if (entry.is_directory()) {
+            // Recursively create tree object for subdirectory
+            std::string subTreeHash = createTreeFromDirectory(entry.path().string());
+            entries.push_back({"40000", name, subTreeHash}); // 40000 is directory mode
+        }
+    }
+    
+    // Sort entries by name (Git requirement)
+    std::sort(entries.begin(), entries.end(), 
+             [](const TreeEntry& a, const TreeEntry& b) {
+                 return a.name < b.name;
+             });
+    
+    // Create and return tree object
+    return writeTreeObject(entries);
 }
 
 int main(int argc, char *argv[])
@@ -333,6 +419,18 @@ int main(int argc, char *argv[])
             
         } catch (const std::exception& e) {
             std::cerr << "Error reading tree object: " << e.what() << '\n';
+            return EXIT_FAILURE;
+        }
+    } else if (command == "write-tree") {
+        try {
+            // Create tree object from current directory
+            std::string hash = createTreeFromDirectory(".");
+            
+            // Print the hash
+            std::cout << hash << '\n';
+            
+        } catch (const std::exception& e) {
+            std::cerr << "Error creating tree: " << e.what() << '\n';
             return EXIT_FAILURE;
         }
     } else {
