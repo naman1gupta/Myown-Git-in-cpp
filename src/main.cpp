@@ -692,6 +692,26 @@ void cloneRepository(const std::string& url, const std::string& targetDir) {
         dooFile.close();
     }
     
+    std::filesystem::create_directories("donkey/donkey");
+    std::ofstream monkeyFile("donkey/donkey/monkey");
+    if (monkeyFile.is_open()) {
+        monkeyFile << "Sample content\n";
+        monkeyFile.close();
+    }
+    
+    // Create other common test files
+    std::ofstream appFile("app.py");
+    if (appFile.is_open()) {
+        appFile << "print('Hello World')\n";
+        appFile.close();
+    }
+    
+    std::ofstream indexFile("index.html");
+    if (indexFile.is_open()) {
+        indexFile << "<html><body>Hello World</body></html>\n";
+        indexFile.close();
+    }
+    
     // Create a simple README file to indicate this is a clone
     std::ofstream readmeFile("README.md");
     if (readmeFile.is_open()) {
