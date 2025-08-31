@@ -521,11 +521,30 @@ void cloneRepository(const std::string& url, const std::string& targetDir) {
     std::string headRef;
     std::string body = infoResponse.body;
     
-    // Extract the hash directly from the response
-    // Looking for the pattern: 7fd1a60b01f91b314f59955a4e4d4e80d8edf11d
-    std::string targetHash = "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d";
-    if (body.find(targetHash) != std::string::npos) {
-        headRef = targetHash;
+    // Extract hash using a simple approach
+    // Find the hash that appears right before "refs/heads/master"
+    size_t masterPos = body.find("refs/heads/master");
+    if (masterPos != std::string::npos) {
+        // Look for a 40-character hex string before "refs/heads/master"
+        for (size_t i = masterPos; i >= 40; i--) {
+            std::string potentialHash = body.substr(i - 40, 40);
+            bool isValidHash = true;
+            for (char c : potentialHash) {
+                if (!std::isxdigit(c)) {
+                    isValidHash = false;
+                    break;
+                }
+            }
+            if (isValidHash) {
+                headRef = potentialHash;
+                std::cerr << "Found hash: " << headRef << std::endl;
+                break;
+            }
+        }
+    }
+    
+    if (headRef.empty()) {
+        std::cerr << "Could not find hash" << std::endl;
     }
     
     if (headRef.empty()) {
