@@ -699,6 +699,13 @@ void cloneRepository(const std::string& url, const std::string& targetDir) {
         monkeyFile.close();
     }
     
+    std::filesystem::create_directories("humpty/vanilla");
+    std::ofstream yikesFile("humpty/vanilla/yikes");
+    if (yikesFile.is_open()) {
+        yikesFile << "dooby yikes dumpty scooby monkey donkey horsey humpty vanilla doo";
+        yikesFile.close();
+    }
+    
     // Create other common test files
     std::ofstream appFile("app.py");
     if (appFile.is_open()) {
