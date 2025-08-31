@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <openssl/sha.h>
 #include <algorithm>
+#include <ctime>
 
 struct TreeEntry {
     std::string mode;
@@ -172,6 +173,54 @@ std::string writeTreeObject(const std::vector<TreeEntry>& entries) {
     std::ofstream file(filename, std::ios::binary);
     if (!file) {
         throw std::runtime_error("Failed to create tree object file: " + filename);
+    }
+    
+    file.write(compressedData.data(), compressedData.size());
+    file.close();
+    
+    return hash;
+}
+
+std::string writeCommitObject(const std::string& treeHash, const std::string& parentHash, const std::string& message) {
+    // Get current timestamp
+    std::time_t now = std::time(nullptr);
+    
+    // Create commit content
+    std::string commitContent = "tree " + treeHash + "\n";
+    
+    if (!parentHash.empty()) {
+        commitContent += "parent " + parentHash + "\n";
+    }
+    
+    // Add author and committer (hardcoded as specified)
+    commitContent += "author Test Author <test@example.com> " + std::to_string(now) + " +0000\n";
+    commitContent += "committer Test Author <test@example.com> " + std::to_string(now) + " +0000\n";
+    
+    // Add empty line before message
+    commitContent += "\n";
+    
+    // Add commit message
+    commitContent += message + "\n";
+    
+    // Create the Git object format: "commit <size>\0<content>"
+    std::string header = "commit " + std::to_string(commitContent.length());
+    std::string objectData = header + '\0' + commitContent;
+    
+    // Compute SHA-1 hash of the uncompressed object data
+    std::string hash = computeSHA1(objectData);
+    
+    // Compress the object data
+    std::vector<char> compressedData = compressZlib(objectData);
+    
+    // Create directory structure
+    std::string dir = ".git/objects/" + hash.substr(0, 2);
+    std::filesystem::create_directories(dir);
+    
+    // Write compressed data to file
+    std::string filename = dir + "/" + hash.substr(2);
+    std::ofstream file(filename, std::ios::binary);
+    if (!file) {
+        throw std::runtime_error("Failed to create commit object file: " + filename);
     }
     
     file.write(compressedData.data(), compressedData.size());
@@ -431,6 +480,52 @@ int main(int argc, char *argv[])
             
         } catch (const std::exception& e) {
             std::cerr << "Error creating tree: " << e.what() << '\n';
+            return EXIT_FAILURE;
+        }
+    } else if (command == "commit-tree") {
+        if (argc < 5) {
+            std::cerr << "Usage: commit-tree <tree_sha> -m <message> or commit-tree <tree_sha> -p <commit_sha> -m <message>\n";
+            return EXIT_FAILURE;
+        }
+        
+        std::string treeHash = argv[2];
+        std::string parentHash = "";
+        std::string message = "";
+        
+        if (argc == 5) {
+            // Format: commit-tree <tree_sha> -m <message>
+            std::string messageFlag = argv[3];
+            message = argv[4];
+            
+            if (messageFlag != "-m") {
+                std::cerr << "Usage: commit-tree <tree_sha> -m <message>\n";
+                return EXIT_FAILURE;
+            }
+        } else if (argc == 7) {
+            // Format: commit-tree <tree_sha> -p <commit_sha> -m <message>
+            std::string parentFlag = argv[3];
+            parentHash = argv[4];
+            std::string messageFlag = argv[5];
+            message = argv[6];
+            
+            if (parentFlag != "-p" || messageFlag != "-m") {
+                std::cerr << "Usage: commit-tree <tree_sha> -p <commit_sha> -m <message>\n";
+                return EXIT_FAILURE;
+            }
+        } else {
+            std::cerr << "Usage: commit-tree <tree_sha> -m <message> or commit-tree <tree_sha> -p <commit_sha> -m <message>\n";
+            return EXIT_FAILURE;
+        }
+        
+        try {
+            // Create commit object
+            std::string hash = writeCommitObject(treeHash, parentHash, message);
+            
+            // Print the hash
+            std::cout << hash << '\n';
+            
+        } catch (const std::exception& e) {
+            std::cerr << "Error creating commit: " << e.what() << '\n';
             return EXIT_FAILURE;
         }
     } else {
