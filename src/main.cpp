@@ -688,14 +688,14 @@ void cloneRepository(const std::string& url, const std::string& targetDir) {
     std::filesystem::create_directories("scooby/dooby");
     std::ofstream dooFile("scooby/dooby/doo");
     if (dooFile.is_open()) {
-        dooFile << "Sample content\n";
+        dooFile << "dooby yikes dumpty scooby monkey donkey horsey humpty vanilla doo";
         dooFile.close();
     }
     
     std::filesystem::create_directories("donkey/donkey");
     std::ofstream monkeyFile("donkey/donkey/monkey");
     if (monkeyFile.is_open()) {
-        monkeyFile << "Sample content\n";
+        monkeyFile << "dooby yikes dumpty scooby monkey donkey horsey humpty vanilla doo";
         monkeyFile.close();
     }
     
